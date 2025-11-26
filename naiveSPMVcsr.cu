@@ -6,7 +6,7 @@
 
 template <typename data_type>
 
-__global__ void csr_spmv_kernel(
+__global__ void csr_spmv_scalar_kernel(
     unsigned int n_rows,
     const unsigned int *colIdx,
     const unsigned int *row_ptr,
