@@ -1,81 +1,66 @@
-#include <iostream>
-#include <chrono>
+#include <cstdio>
+#include <cstdlib>
 #include <cuda_runtime.h>
+#include <iostream>
 
-__global__ void vectorAdd(const float* A, const float* B, float* C, int N) {
-    int tid = blockIdx.x * blockDim.x + threadIdx.x;
-    if (tid < N) {
-        C[tid] = A[tid] + B[tid];
-    }
+__global__ void vecAdd(int *a, int *b, int *c, int n) {
+    int tid = threadIdx.x + blockIdx.x * blockDim.x;
+    if (tid >= n) return;
+
+    c[tid] = a[tid] + b[tid];
 }
 
 int main() {
-    int N = 1 << 20;
-    size_t size = N * sizeof(float);
+    const int N = 10;
 
-    float* h_A = new float[N];
-    float* h_B = new float[N];
-    float* h_C = new float[N];
+   
+    int a[N], b[N], c[N];
 
-    for (int i = 0; i < N; i++) {
-        h_A[i] = 1.0f;
-        h_B[i] = 2.0f;
+    for (int q = 0; q < N; q++) {
+        a[q] = q;
+        b[q] = q * 3;
     }
 
-    float *d_A, *d_B, *d_C;
-    cudaMalloc(&d_A, size);
-    cudaMalloc(&d_B, size);
-    cudaMalloc(&d_C, size);
+    size_t size = N * sizeof(int);
 
-    auto startH2D = std::chrono::high_resolution_clock::now();
-    cudaMemcpy(d_A, h_A, size, cudaMemcpyHostToDevice);
-    cudaMemcpy(d_B, h_B, size, cudaMemcpyHostToDevice);
-    auto stopH2D = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> h2d_time = stopH2D - startH2D;
+    int *d_a, *d_b, *d_c;
 
-    int threadsPerBlock = 256;
-    int blocksPerGrid = (N + threadsPerBlock - 1) / threadsPerBlock;
+    cudaMalloc((void**)&d_a, size);
+    cudaMalloc((void**)&d_b, size);
+    cudaMalloc((void**)&d_c, size);
 
-    auto startKernel = std::chrono::high_resolution_clock::now();
-    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
-    cudaDeviceSynchronize();
-    auto stopKernel = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> kernel_time_chrono = stopKernel - startKernel;
+    cudaMemcpy(d_a, a, size, cudaMemcpyHostToDevice);
+    cudaMemcpy(d_b, b, size, cudaMemcpyHostToDevice);
 
     cudaEvent_t startEvent, stopEvent;
     cudaEventCreate(&startEvent);
     cudaEventCreate(&stopEvent);
 
     cudaEventRecord(startEvent);
-    vectorAdd<<<blocksPerGrid, threadsPerBlock>>>(d_A, d_B, d_C, N);
+
+    vecAdd<<<1, N>>>(d_a, d_b, d_c, N);
+
     cudaEventRecord(stopEvent);
     cudaEventSynchronize(stopEvent);
 
-    float kernel_time_cuda = 0;
-    cudaEventElapsedTime(&kernel_time_cuda, startEvent, stopEvent);
+    cudaMemcpy(c, d_c, size, cudaMemcpyDeviceToHost);
 
-    auto startD2H = std::chrono::high_resolution_clock::now();
-    cudaMemcpy(h_C, d_C, size, cudaMemcpyDeviceToHost);
-    auto stopD2H = std::chrono::high_resolution_clock::now();
-    std::chrono::duration<double, std::milli> d2h_time = stopD2H - startD2H;
+    float gpuDuration = 0.0f;
+    cudaEventElapsedTime(&gpuDuration, startEvent, stopEvent);
 
-    std::cout << "Host-to-Device transfer time: " << h2d_time.count() << " ms\n";
-    std::cout << "Kernel time (std::chrono): " << kernel_time_chrono.count() << " ms\n";
-    std::cout << "Kernel time (CUDA events): " << kernel_time_cuda << " ms\n";
-    std::cout << "Device-to-Host transfer time: " << d2h_time.count() << " ms\n";
+    std::cout << "GPU kernel time: " << gpuDuration << " ms\n";
+    std::cout << "Vector Addition Result:\n";
 
-    std::cout << "Sample output: " << h_C[0] << ", " << h_C[1] << ", " << h_C[2] << "\n";
+    for (int i = 0; i < N; i++)
+        std::cout << a[i] << " + " << b[i] << " = " << c[i] << "\n";
 
-    delete[] h_A;
-    delete[] h_B;
-    delete[] h_C;
-    cudaFree(d_A);
-    cudaFree(d_B);
-    cudaFree(d_C);
+    
+    cudaFree(d_a);
+    cudaFree(d_b);
+    cudaFree(d_c);
 
     cudaEventDestroy(startEvent);
     cudaEventDestroy(stopEvent);
 
     return 0;
 }
-
